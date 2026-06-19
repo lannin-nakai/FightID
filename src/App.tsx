@@ -182,7 +182,9 @@ function App() {
 
   const selectedFighter = selectedEvent ? analysis.fighters[selectedEvent.fighterId] : undefined;
   const analysisModeLabel =
-    analysis.analysisMode === "client_frame_analysis"
+    analysis.analysisMode === "pose_enhanced_analysis"
+      ? "Pose-enhanced analysis"
+      : analysis.analysisMode === "client_frame_analysis"
       ? "Client frame analysis"
       : analysis.analysisMode === "linked_metadata_analysis"
         ? "Linked metadata fallback"
