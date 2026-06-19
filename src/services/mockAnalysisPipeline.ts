@@ -90,6 +90,6 @@ export const runMockFightAnalysis = async (
     title:
       source.kind === "sample"
         ? mockFightAnalysis.title
-        : `${mockFightAnalysis.title} | ${source.label}`,
+        : `${mockFightAnalysis.title} | Mock analysis for ${source.label}`,
   };
 };
