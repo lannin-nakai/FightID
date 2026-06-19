@@ -144,7 +144,11 @@ export interface FightAnalysis {
   duration: number;
   sourceLabel: string;
   sourceKind: VideoSource["kind"];
-  analysisMode: "sample_dataset" | "client_frame_analysis" | "linked_metadata_analysis";
+  analysisMode:
+    | "sample_dataset"
+    | "client_frame_analysis"
+    | "pose_enhanced_analysis"
+    | "linked_metadata_analysis";
   analysisSummary: string;
   fighters: Record<FighterId, Fighter>;
   rounds: FightRound[];
