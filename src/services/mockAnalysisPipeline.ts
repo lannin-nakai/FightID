@@ -104,10 +104,15 @@ type PoseSignal = FrameSignal & {
   handVelocity: number;
   footVelocity: number;
   handExtension: number;
+  handVerticalLift: number;
+  handLateralTravel: number;
   kickHeight: number;
   levelChange: number;
   clinchDistance: number;
   defensiveShell: number;
+  torsoRotation: number;
+  stanceWidth: number;
+  hipDrive: number;
   dominantCenterX: number;
   dominantPose?: PoseEstimate;
 };
@@ -135,6 +140,196 @@ const GRAPPLING_MOVEMENTS: MovementType[] = [
   "successful_takedown",
   "clinch_exchange",
   "scramble",
+];
+
+type MovementFeatureKey =
+  | "handVelocity"
+  | "handExtension"
+  | "handVerticalLift"
+  | "handLateralTravel"
+  | "footVelocity"
+  | "kickHeight"
+  | "levelChange"
+  | "clinchDistance"
+  | "defensiveShell"
+  | "torsoRotation"
+  | "stanceWidth"
+  | "hipDrive"
+  | "motion"
+  | "poseCount";
+
+type MovementCue = {
+  movementType: MovementType;
+  result: EventResult;
+  baseImpact: EventImpact;
+  minScore: number;
+  weights: Partial<Record<MovementFeatureKey, number>>;
+  negativeWeights?: Partial<Record<MovementFeatureKey, number>>;
+  evidence: string;
+};
+
+/*
+ * Movement-judgement resources baked into the browser classifier:
+ * - Boxing biomechanics literature distinguishes straight punches, hooks, and
+ *   uppercuts by endpoint velocity, body rotation, and vertical/lateral punch path.
+ * - Combat-sport coaching cues distinguish kicks by ankle/foot velocity plus
+ *   target height, takedowns by hip level change/penetration, and clinch by
+ *   close multi-person proximity.
+ * - Pose-action-recognition practice uses normalized keypoint positions,
+ *   temporal velocities, and multi-frame windows rather than single-frame labels.
+ */
+const MOVEMENT_CUES: MovementCue[] = [
+  {
+    movementType: "jab",
+    result: "landed",
+    baseImpact: "medium",
+    minScore: 0.34,
+    weights: { handVelocity: 0.24, handExtension: 0.3, motion: 0.1 },
+    negativeWeights: { torsoRotation: 0.18, handLateralTravel: 0.1, handVerticalLift: 0.1 },
+    evidence: "short, fast straight lead-hand extension with limited torso rotation",
+  },
+  {
+    movementType: "cross",
+    result: "landed",
+    baseImpact: "high",
+    minScore: 0.42,
+    weights: { handVelocity: 0.28, handExtension: 0.26, torsoRotation: 0.18, hipDrive: 0.12 },
+    negativeWeights: { handVerticalLift: 0.08 },
+    evidence: "rear straight punch pattern with hand extension plus hip/torso rotation",
+  },
+  {
+    movementType: "hook",
+    result: "landed",
+    baseImpact: "high",
+    minScore: 0.4,
+    weights: { handVelocity: 0.24, handLateralTravel: 0.28, torsoRotation: 0.2, handExtension: 0.08 },
+    negativeWeights: { handVerticalLift: 0.1 },
+    evidence: "circular punch path with lateral hand travel and trunk rotation",
+  },
+  {
+    movementType: "uppercut",
+    result: "landed",
+    baseImpact: "high",
+    minScore: 0.38,
+    weights: { handVelocity: 0.22, handVerticalLift: 0.3, torsoRotation: 0.12, hipDrive: 0.1 },
+    negativeWeights: { kickHeight: 0.08 },
+    evidence: "rising hand path with shoulder/hip drive",
+  },
+  {
+    movementType: "elbow",
+    result: "landed",
+    baseImpact: "medium",
+    minScore: 0.36,
+    weights: { handVelocity: 0.2, handLateralTravel: 0.16, clinchDistance: 0.22, torsoRotation: 0.1 },
+    negativeWeights: { handExtension: 0.12 },
+    evidence: "short-range upper-limb strike during close distance",
+  },
+  {
+    movementType: "counter",
+    result: "landed",
+    baseImpact: "high",
+    minScore: 0.44,
+    weights: { defensiveShell: 0.18, handVelocity: 0.22, handExtension: 0.16, motion: 0.12 },
+    evidence: "defensive shell or retreat followed by fast hand extension",
+  },
+  {
+    movementType: "low_kick",
+    result: "landed",
+    baseImpact: "medium",
+    minScore: 0.36,
+    weights: { footVelocity: 0.34, motion: 0.1 },
+    negativeWeights: { kickHeight: 0.22, handVelocity: 0.08 },
+    evidence: "fast lower-limb motion with low target height",
+  },
+  {
+    movementType: "body_kick",
+    result: "landed",
+    baseImpact: "medium",
+    minScore: 0.4,
+    weights: { footVelocity: 0.3, kickHeight: 0.22, torsoRotation: 0.1, stanceWidth: 0.08 },
+    negativeWeights: { levelChange: 0.08 },
+    evidence: "fast foot path rising to midline target height",
+  },
+  {
+    movementType: "head_kick",
+    result: "landed",
+    baseImpact: "critical",
+    minScore: 0.48,
+    weights: { footVelocity: 0.28, kickHeight: 0.38, torsoRotation: 0.08 },
+    negativeWeights: { clinchDistance: 0.12 },
+    evidence: "fast foot path at shoulder/head height",
+  },
+  {
+    movementType: "knee",
+    result: "landed",
+    baseImpact: "high",
+    minScore: 0.42,
+    weights: { footVelocity: 0.22, kickHeight: 0.18, clinchDistance: 0.2, levelChange: 0.08 },
+    negativeWeights: { handExtension: 0.08 },
+    evidence: "close-range lower-limb lift through the body line",
+  },
+  {
+    movementType: "takedown_attempt",
+    result: "stuffed",
+    baseImpact: "medium",
+    minScore: 0.4,
+    weights: { levelChange: 0.34, hipDrive: 0.2, clinchDistance: 0.14, motion: 0.08 },
+    negativeWeights: { kickHeight: 0.12 },
+    evidence: "hip level drop and forward drive toward opponent",
+  },
+  {
+    movementType: "successful_takedown",
+    result: "successful",
+    baseImpact: "high",
+    minScore: 0.56,
+    weights: { levelChange: 0.34, hipDrive: 0.2, clinchDistance: 0.2, poseCount: 0.08 },
+    negativeWeights: { defensiveShell: 0.08 },
+    evidence: "level change with close-contact drive and large positional displacement",
+  },
+  {
+    movementType: "clinch_exchange",
+    result: "transition",
+    baseImpact: "medium",
+    minScore: 0.38,
+    weights: { clinchDistance: 0.36, poseCount: 0.12, handLateralTravel: 0.08, motion: 0.08 },
+    negativeWeights: { kickHeight: 0.1 },
+    evidence: "two-fighter close proximity with upper-body pummeling movement",
+  },
+  {
+    movementType: "scramble",
+    result: "transition",
+    baseImpact: "medium",
+    minScore: 0.42,
+    weights: { levelChange: 0.22, clinchDistance: 0.18, motion: 0.18, hipDrive: 0.12 },
+    evidence: "rapid level and position changes after grappling contact",
+  },
+  {
+    movementType: "defensive_movement",
+    result: "defended",
+    baseImpact: "low",
+    minScore: 0.32,
+    weights: { defensiveShell: 0.34, levelChange: 0.08, handVelocity: 0.06 },
+    negativeWeights: { handExtension: 0.1, kickHeight: 0.1 },
+    evidence: "hands near head/torso with evasive level or guard movement",
+  },
+  {
+    movementType: "footwork_pattern",
+    result: "created_space",
+    baseImpact: "low",
+    minScore: 0.28,
+    weights: { stanceWidth: 0.18, motion: 0.12, hipDrive: 0.1 },
+    negativeWeights: { handVelocity: 0.12, kickHeight: 0.12, clinchDistance: 0.1 },
+    evidence: "lower-body repositioning without clear strike or grappling contact",
+  },
+  {
+    movementType: "feint",
+    result: "created_space",
+    baseImpact: "low",
+    minScore: 0.3,
+    weights: { handVelocity: 0.08, footVelocity: 0.08, levelChange: 0.08, motion: 0.12 },
+    negativeWeights: { handExtension: 0.12, clinchDistance: 0.12 },
+    evidence: "small initiating motion without full extension or contact pattern",
+  },
 ];
 
 const hashString = (value: string): number =>
@@ -393,6 +588,8 @@ const derivePoseSignal = (
   const previousRightWrist = getKeypoint(previousPose, "right_wrist");
   const previousLeftAnkle = getKeypoint(previousPose, "left_ankle");
   const previousRightAnkle = getKeypoint(previousPose, "right_ankle");
+  const previousLeftShoulder = getKeypoint(previousPose, "left_shoulder");
+  const previousRightShoulder = getKeypoint(previousPose, "right_shoulder");
   const hipCenter = averagePoint(leftHip, rightHip);
   const previousHipCenter = averagePoint(
     getKeypoint(previousPose, "left_hip"),
@@ -416,10 +613,36 @@ const derivePoseSignal = (
       keypointVelocity(rightAnkle, previousRightAnkle, width, height),
     ) * 4,
   );
+  const leftHandVerticalLift =
+    leftWrist && previousLeftWrist ? Math.max(0, (previousLeftWrist.y - leftWrist.y) / height) : 0;
+  const rightHandVerticalLift =
+    rightWrist && previousRightWrist ? Math.max(0, (previousRightWrist.y - rightWrist.y) / height) : 0;
+  const handVerticalLift = Math.min(1, Math.max(leftHandVerticalLift, rightHandVerticalLift) * 5);
+  const leftHandLateralTravel =
+    leftWrist && previousLeftWrist ? Math.abs(leftWrist.x - previousLeftWrist.x) / width : 0;
+  const rightHandLateralTravel =
+    rightWrist && previousRightWrist ? Math.abs(rightWrist.x - previousRightWrist.x) / width : 0;
+  const handLateralTravel = Math.min(1, Math.max(leftHandLateralTravel, rightHandLateralTravel) * 5);
   const highestFoot = Math.min(leftAnkle?.y ?? height, rightAnkle?.y ?? height) / height;
   const shoulderLine = averagePoint(leftShoulder, rightShoulder)?.y ?? height * 0.35;
   const kickHeight = Math.max(0, Math.min(1, (shoulderLine / height + 0.32 - highestFoot) * 2.4));
   const levelChange = hipCenter && previousHipCenter ? Math.min(1, Math.abs(hipCenter.y - previousHipCenter.y) / height * 7) : 0;
+  const shoulderAngle =
+    leftShoulder && rightShoulder
+      ? Math.atan2(leftShoulder.y - rightShoulder.y, leftShoulder.x - rightShoulder.x)
+      : 0;
+  const hipAngle =
+    leftHip && rightHip ? Math.atan2(leftHip.y - rightHip.y, leftHip.x - rightHip.x) : 0;
+  const torsoRotation = Math.min(1, Math.abs(shoulderAngle - hipAngle) / Math.PI * 2);
+  const previousShoulderCenter = averagePoint(previousLeftShoulder, previousRightShoulder);
+  const shoulderCenter = averagePoint(leftShoulder, rightShoulder);
+  const hipDrive =
+    hipCenter && previousHipCenter
+      ? Math.min(1, distance(hipCenter, previousHipCenter, width, height) * 5)
+      : shoulderCenter && previousShoulderCenter
+        ? Math.min(1, distance(shoulderCenter, previousShoulderCenter, width, height) * 4)
+        : 0;
+  const stanceWidth = Math.min(1, distance(leftAnkle, rightAnkle, width, height) * 2.5);
   const center = poseCenter(dominantPose);
   const otherCenter = poseCenter(secondPose);
   const proximity = center && otherCenter ? distance(center, otherCenter, width, height) : 1;
@@ -441,10 +664,15 @@ const derivePoseSignal = (
     handVelocity,
     footVelocity,
     handExtension,
+    handVerticalLift,
+    handLateralTravel,
     kickHeight,
     levelChange,
     clinchDistance,
     defensiveShell,
+    torsoRotation,
+    stanceWidth,
+    hipDrive,
     dominantCenterX: center ? Math.max(0, Math.min(1, center.x / width)) : 0.5,
     dominantPose,
   };
@@ -508,7 +736,7 @@ const sampleVideoFrames = async (
   );
   const video = await loadVideoMetadata(source);
   const duration = Number.isFinite(video.duration) ? video.duration : 900;
-  const sampleCount = Math.min(28, Math.max(10, Math.floor(duration / 24)));
+  const sampleCount = Math.max(10, Math.floor(duration / 12));
   const canvas = document.createElement("canvas");
   const width = 96;
   const height = 54;
@@ -573,7 +801,7 @@ const samplePoseEnhancedFrames = async (
   const stages = createPipelineStages();
   const video = await loadVideoMetadata(source);
   const duration = Number.isFinite(video.duration) ? video.duration : 900;
-  const sampleCount = Math.min(42, Math.max(14, Math.floor(duration / 16)));
+  const sampleCount = Math.max(14, Math.floor(duration / 8));
   const canvas = document.createElement("canvas");
   const width = 128;
   const height = 72;
@@ -659,7 +887,9 @@ const eventsFromFrameSignals = (
     (left, right) =>
       right.motion + right.contrast * 0.25 - (left.motion + left.contrast * 0.25),
   );
-  const selectedSignals = sortedSignals.slice(0, Math.min(18, Math.max(8, sortedSignals.length)));
+  const selectedSignals = sortedSignals.filter(
+    (signal) => signal.motion > 0.08 || signal.contrast > 0.18,
+  );
   const seed = Math.abs(hashString(`${source.label}-${source.src ?? ""}`));
 
   return selectedSignals
@@ -710,6 +940,8 @@ const eventsFromFrameSignals = (
 const poseSalience = (signal: PoseSignal): number =>
   Math.max(
     signal.handVelocity * 0.35 + signal.handExtension * 0.45,
+    signal.handLateralTravel * 0.24 + signal.torsoRotation * 0.28,
+    signal.handVerticalLift * 0.32 + signal.hipDrive * 0.16,
     signal.footVelocity * 0.35 + signal.kickHeight * 0.48,
     signal.levelChange * 0.72,
     signal.clinchDistance * 0.8,
@@ -724,12 +956,8 @@ const selectPoseEventSignals = (signals: PoseSignal[]): PoseSignal[] => {
     .sort((left, right) => poseSalience(right) - poseSalience(left));
 
   for (const signal of ranked) {
-    if (selected.length >= Math.min(24, Math.max(10, Math.floor(signals.length * 0.62)))) {
-      break;
-    }
-
     const tooClose = selected.some(
-      (selectedSignal) => Math.abs(selectedSignal.timestamp - signal.timestamp) < 4,
+      (selectedSignal) => Math.abs(selectedSignal.timestamp - signal.timestamp) < 1.75,
     );
 
     if (!tooClose) {
@@ -740,109 +968,76 @@ const selectPoseEventSignals = (signals: PoseSignal[]): PoseSignal[] => {
   return selected.sort((left, right) => left.timestamp - right.timestamp);
 };
 
+const getMovementFeatureValue = (signal: PoseSignal, feature: MovementFeatureKey): number => {
+  if (feature === "poseCount") {
+    return Math.min(1, signal.poseCount / 2);
+  }
+
+  return signal[feature];
+};
+
+const scoreMovementCue = (signal: PoseSignal, cue: MovementCue): number => {
+  const positiveScore = Object.entries(cue.weights).reduce(
+    (sum, [feature, weight]) =>
+      sum + getMovementFeatureValue(signal, feature as MovementFeatureKey) * weight,
+    0,
+  );
+  const negativeScore = Object.entries(cue.negativeWeights ?? {}).reduce(
+    (sum, [feature, weight]) =>
+      sum + getMovementFeatureValue(signal, feature as MovementFeatureKey) * weight,
+    0,
+  );
+
+  return Math.max(0, positiveScore - negativeScore) * Math.max(0.48, signal.poseConfidence);
+};
+
+const impactFromCueScore = (cue: MovementCue, score: number): EventImpact => {
+  if (score > cue.minScore + 0.34) {
+    return cue.baseImpact === "critical" ? "critical" : cue.baseImpact === "high" ? "critical" : "high";
+  }
+
+  if (score > cue.minScore + 0.18) {
+    return cue.baseImpact === "low" ? "medium" : cue.baseImpact;
+  }
+
+  return cue.baseImpact;
+};
+
+const resultFromCueScore = (cue: MovementCue, score: number): EventResult => {
+  if (cue.result === "landed" && score < cue.minScore + 0.12) {
+    return "blocked";
+  }
+
+  if (cue.movementType === "takedown_attempt" && score > cue.minScore + 0.22) {
+    return "defended";
+  }
+
+  return cue.result;
+};
+
 const classifyPoseMovement = (
   signal: PoseSignal,
-  seed: number,
-  index: number,
 ): { movementType: MovementType; result: EventResult; impact: EventImpact; featureScore: number } => {
-  const handScore = signal.handVelocity * 0.46 + signal.handExtension * 0.54;
-  const kickScore = signal.footVelocity * 0.42 + signal.kickHeight * 0.58;
-  const grapplingScore = Math.max(signal.levelChange * 0.85, signal.clinchDistance * 0.9);
-  const defensiveScore = signal.defensiveShell * 0.75 + (1 - signal.handExtension) * 0.08;
-  const featureScore = Math.max(handScore, kickScore, grapplingScore, defensiveScore, signal.motion);
+  const scoredCues = MOVEMENT_CUES.map((cue) => ({
+    cue,
+    score: scoreMovementCue(signal, cue),
+  })).sort((left, right) => right.score - left.score);
+  const best = scoredCues.find(({ cue, score }) => score >= cue.minScore) ?? scoredCues[0];
 
-  if (signal.poseCount >= 2 && signal.clinchDistance > 0.5) {
-    const movementType: MovementType =
-      signal.levelChange > 0.42
-        ? seededValue(seed, index) > 0.58
-          ? "successful_takedown"
-          : "takedown_attempt"
-        : seededValue(seed, index + 1) > 0.48
-          ? "clinch_exchange"
-          : "scramble";
-
+  if (!best) {
     return {
-      movementType,
-      result:
-        movementType === "successful_takedown"
-          ? "successful"
-          : movementType === "takedown_attempt"
-            ? "stuffed"
-            : "transition",
-      impact: signal.levelChange > 0.58 ? "high" : "medium",
-      featureScore: grapplingScore,
+      movementType: "footwork_pattern",
+      result: "created_space",
+      impact: "low",
+      featureScore: signal.motion,
     };
   }
-
-  if (signal.levelChange > 0.52) {
-    const movementType: MovementType =
-      signal.motion > 0.22 && seededValue(seed, index + 3) > 0.5
-        ? "successful_takedown"
-        : "takedown_attempt";
-
-    return {
-      movementType,
-      result: movementType === "successful_takedown" ? "successful" : "stuffed",
-      impact: signal.levelChange > 0.72 ? "high" : "medium",
-      featureScore: signal.levelChange,
-    };
-  }
-
-  if (kickScore > handScore && kickScore > 0.42) {
-    const movementType: MovementType =
-      signal.kickHeight > 0.74
-        ? "head_kick"
-        : signal.kickHeight > 0.42
-          ? seededValue(seed, index + 4) > 0.36
-            ? "body_kick"
-            : "knee"
-          : "low_kick";
-
-    return {
-      movementType,
-      result: kickScore > 0.66 ? "landed" : "blocked",
-      impact: signal.kickHeight > 0.74 && kickScore > 0.66 ? "critical" : kickScore > 0.58 ? "high" : "medium",
-      featureScore: kickScore,
-    };
-  }
-
-  if (handScore > 0.38) {
-    const punchBucket: MovementType[] =
-      signal.handVelocity > 0.68
-        ? ["cross", "hook", "counter", "uppercut"]
-        : ["jab", "cross", "hook", "elbow"];
-    const movementType =
-      punchBucket[Math.floor(seededValue(seed, index + 8) * punchBucket.length)] ?? "jab";
-
-    return {
-      movementType,
-      result: handScore > 0.6 ? "landed" : "blocked",
-      impact: handScore > 0.78 ? "critical" : handScore > 0.58 ? "high" : "medium",
-      featureScore: handScore,
-    };
-  }
-
-  if (defensiveScore > 0.34) {
-    return {
-      movementType: signal.handVelocity > 0.32 ? "counter" : "defensive_movement",
-      result: signal.handVelocity > 0.32 ? "landed" : "defended",
-      impact: defensiveScore > 0.55 ? "medium" : "low",
-      featureScore: defensiveScore,
-    };
-  }
-
-  const movementType: MovementType =
-    signal.motion > 0.18
-      ? seededValue(seed, index + 12) > 0.55
-        ? "feint"
-        : "footwork_pattern"
-      : "defensive_movement";
 
   return {
-    movementType,
-    result: movementType === "defensive_movement" ? "defended" : "created_space",
-    impact: "low",
-    featureScore,
+    movementType: best.cue.movementType,
+    result: resultFromCueScore(best.cue, best.score),
+    impact: impactFromCueScore(best.cue, best.score),
+    featureScore: best.score,
   };
 };
 
@@ -852,10 +1047,8 @@ const eventsFromPoseSignals = (
   rounds: FightRound[],
   signals: PoseSignal[],
 ): FightEvent[] => {
-  const seed = Math.abs(hashString(`${source.label}-${source.src ?? ""}-pose`));
-
   return selectPoseEventSignals(signals).map((signal, index) => {
-    const classification = classifyPoseMovement(signal, seed, index);
+    const classification = classifyPoseMovement(signal);
     const confidence = Math.min(
       0.96,
       Math.max(
@@ -881,11 +1074,16 @@ const eventsFromPoseSignals = (
         2,
       )}, handVel=${signal.handVelocity.toFixed(2)}, footVel=${signal.footVelocity.toFixed(
         2,
-      )}, handExt=${signal.handExtension.toFixed(2)}, kickHeight=${signal.kickHeight.toFixed(
+      )}, handExt=${signal.handExtension.toFixed(2)}, handLift=${signal.handVerticalLift.toFixed(
+        2,
+      )}, lateralHand=${signal.handLateralTravel.toFixed(2)}, kickHeight=${signal.kickHeight.toFixed(
         2,
       )}, levelChange=${signal.levelChange.toFixed(2)}, clinch=${signal.clinchDistance.toFixed(
         2,
-      )}.`,
+      )}, torsoRot=${signal.torsoRotation.toFixed(2)}. Cue: ${
+        MOVEMENT_CUES.find((cue) => cue.movementType === classification.movementType)?.evidence ??
+        "best available pose/motion match"
+      }.`,
       fighterId,
     );
   });
@@ -897,7 +1095,7 @@ const buildSourceSpecificLinkedEvents = (
   rounds: FightRound[],
 ): FightEvent[] => {
   const seed = Math.abs(hashString(`${source.label}-${source.src ?? ""}`));
-  const eventCount = 12 + Math.floor(seededValue(seed, 1) * 10);
+  const eventCount = Math.max(12, Math.floor(duration / 15));
   const movementPool: MovementType[] = [
     ...STRIKING_MOVEMENTS,
     ...GRAPPLING_MOVEMENTS,
@@ -1036,7 +1234,7 @@ export const runFightAnalysis = async (
         duration,
         rounds,
         events,
-        "High-accuracy client-side analysis ran: the browser sampled frames, estimated fighter pose keypoints with MoveNet, tracked hand/foot velocities, limb extension, level changes, clinch proximity, and defensive shell positions, then fused those features with frame motion to classify timestamp candidates.",
+        "High-accuracy client-side analysis ran: the browser sampled frames, estimated fighter pose keypoints with MoveNet, then scored every qualifying temporal window against combat-sports movement cues for straight punches, hooks, uppercuts, kicks, knees, takedowns, clinch exchanges, scrambles, feints, footwork, and defense. Output is no longer capped to twenty movements.",
       );
     } catch (error) {
       console.warn("Falling back to frame-only analysis:", error);
