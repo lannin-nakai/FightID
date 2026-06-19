@@ -61,7 +61,9 @@ function App() {
   const [filters, setFilters] = useState<EventFilters>(defaultFilters);
   const [stages, setStages] = useState<PipelineStage[]>(createPipelineStages());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [selectedEventId, setSelectedEventId] = useState(analysis.events[0]?.id);
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(
+    analysis.events[0]?.id,
+  );
   const [seekRequest, setSeekRequest] = useState<number | null>(null);
   const [editingEvent, setEditingEvent] = useState<FightEvent | undefined>();
   const [isAddingEvent, setIsAddingEvent] = useState(false);
