@@ -12,7 +12,7 @@ import { UploadPanel } from "./components/UploadPanel";
 import { VideoStage } from "./components/VideoStage";
 import {
   createPipelineStages,
-  runMockFightAnalysis,
+  runFightAnalysis,
   type PipelineStage,
 } from "./services/mockAnalysisPipeline";
 import type { EventFilters, FightAnalysis, FightEvent, VideoSource } from "./types/fight";
@@ -34,7 +34,7 @@ const defaultFilters: EventFilters = {
 
 const sampleSource: VideoSource = {
   kind: "sample",
-  label: "Sample mock fight: Voss vs Kane",
+  label: "Sample fight: Voss vs Kane",
 };
 
 const sortEvents = (events: FightEvent[]) =>
@@ -122,7 +122,7 @@ function App() {
     setIsAnalyzing(true);
 
     try {
-      const nextAnalysis = await runMockFightAnalysis(sourceToAnalyze, setStages);
+      const nextAnalysis = await runFightAnalysis(sourceToAnalyze, setStages);
       setAnalysis(nextAnalysis);
       setAnalyzedSource(sourceToAnalyze);
       setSelectedEventId(nextAnalysis.events[0]?.id);
@@ -181,6 +181,12 @@ function App() {
   };
 
   const selectedFighter = selectedEvent ? analysis.fighters[selectedEvent.fighterId] : undefined;
+  const analysisModeLabel =
+    analysis.analysisMode === "client_frame_analysis"
+      ? "Client frame analysis"
+      : analysis.analysisMode === "linked_metadata_analysis"
+        ? "Linked metadata fallback"
+        : "Sample dataset";
   const headerMetrics: HeaderMetric[] = [
     { label: "Events", value: analysis.stats.eventCount, Icon: BrainCircuit },
     { label: "Avg confidence", value: `${analysis.stats.averageConfidence}%`, Icon: DatabaseZap },
@@ -206,7 +212,7 @@ function App() {
                   MMA footage analysis with interactive timestamped breakdowns.
                 </h1>
                 <p className="mt-5 max-w-3xl text-base leading-8 text-slate-300 md:text-lg">
-                  Upload or link fight footage, run a structured mock CV pipeline, inspect
+                  Upload or link fight footage, run a structured video-analysis pipeline, inspect
                   jabs, kicks, takedowns, scrambles, momentum swings, pose silhouettes, and
                   editable fight stats in one polished film-room interface.
                 </p>
@@ -259,6 +265,8 @@ function App() {
           <div className="space-y-6">
             <UploadPanel
               analyzedSource={analyzedSource}
+              analysisMode={analysisModeLabel}
+              analysisSummary={analysis.analysisSummary}
               isAnalysisStale={isAnalysisStale}
               isAnalyzing={isAnalyzing}
               source={source}

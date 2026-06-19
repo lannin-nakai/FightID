@@ -741,6 +741,11 @@ export const mockFightAnalysis: FightAnalysis = {
   venue: "Apex Performance Center",
   date: "2026-06-19",
   duration: 900,
+  sourceLabel: "Bundled sample fight",
+  sourceKind: "sample",
+  analysisMode: "sample_dataset",
+  analysisSummary:
+    "Bundled analyst-labeled sample dataset used when no user footage has been analyzed.",
   fighters,
   rounds,
   events: mockEvents,

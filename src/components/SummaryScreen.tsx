@@ -27,7 +27,7 @@ export const SummaryScreen = ({ analysis }: SummaryScreenProps) => {
           type="button"
         >
           <Download className="h-4 w-4" />
-          Export mock report
+          Export analysis report
         </button>
       </div>
 

@@ -6,6 +6,8 @@ import { parseVideoUrl } from "../utils/videoSource";
 interface UploadPanelProps {
   source: VideoSource;
   analyzedSource: VideoSource;
+  analysisMode: string;
+  analysisSummary: string;
   isAnalyzing: boolean;
   isAnalysisStale: boolean;
   onSourceChange: (source: VideoSource) => void;
@@ -15,6 +17,8 @@ interface UploadPanelProps {
 export const UploadPanel = ({
   source,
   analyzedSource,
+  analysisMode,
+  analysisSummary,
   isAnalyzing,
   isAnalysisStale,
   onSourceChange,
@@ -54,8 +58,9 @@ export const UploadPanel = ({
           </p>
           <h2 className="mt-2 text-xl font-bold text-white">Upload or link fight footage</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-400">
-            The prototype runs a realistic mock analysis pass and returns structured fight
-            events that can later be replaced by real CV/ML output.
+            Uploaded or CORS-enabled direct videos run client-side frame sampling for
+            motion-based event candidates. Restricted links still need a backend ingestion
+            worker for true visual model analysis.
           </p>
         </div>
 
@@ -123,7 +128,8 @@ export const UploadPanel = ({
             }}
           />
           <button
-            className="rounded-xl border border-cyan-400/40 px-3 py-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200 transition hover:bg-cyan-400/10"
+            className="rounded-xl border border-cyan-400/40 px-3 py-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200 transition hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isAnalyzing}
             type="button"
             onClick={() => {
               const urlSource = getUrlSource();
@@ -133,9 +139,10 @@ export const UploadPanel = ({
               }
 
               onSourceChange(urlSource);
+              onAnalyze(urlSource);
             }}
           >
-            Use link
+            Use & analyze
           </button>
         </div>
 
@@ -156,9 +163,15 @@ export const UploadPanel = ({
         {isAnalysisStale && (
           <span className="text-orange-200">
             {" "}
-            - new source selected, press Analyze to refresh the mock results.
+            - new source selected, press Analyze to refresh the results.
           </span>
         )}
+        <p className="mt-2 text-xs leading-5 text-slate-300">
+          <span className="font-semibold uppercase tracking-[0.14em] text-slate-400">
+            {analysisMode}
+          </span>{" "}
+          {analysisSummary}
+        </p>
       </div>
       {urlError && <p className="mt-2 text-sm text-rose-300">{urlError}</p>}
     </section>
