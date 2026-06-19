@@ -58,6 +58,7 @@ const updateAnalysisEvents = (
 function App() {
   const [analysis, setAnalysis] = useState<FightAnalysis>(mockFightAnalysis);
   const [source, setSource] = useState<VideoSource>(sampleSource);
+  const [analyzedSource, setAnalyzedSource] = useState<VideoSource>(sampleSource);
   const [filters, setFilters] = useState<EventFilters>(defaultFilters);
   const [stages, setStages] = useState<PipelineStage[]>(createPipelineStages());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -103,12 +104,27 @@ function App() {
     [analysis.events, filters],
   );
 
-  const handleAnalyze = async () => {
+  const isAnalysisStale =
+    source.kind !== analyzedSource.kind ||
+    source.label !== analyzedSource.label ||
+    source.src !== analyzedSource.src;
+
+  const handleSourceChange = (nextSource: VideoSource) => {
+    setSource(nextSource);
+    setStages(createPipelineStages());
+    setSeekRequest(null);
+  };
+
+  const handleAnalyze = async (sourceOverride?: VideoSource) => {
+    const sourceToAnalyze = sourceOverride ?? source;
+
+    setSource(sourceToAnalyze);
     setIsAnalyzing(true);
 
     try {
-      const nextAnalysis = await runMockFightAnalysis(source, setStages);
+      const nextAnalysis = await runMockFightAnalysis(sourceToAnalyze, setStages);
       setAnalysis(nextAnalysis);
+      setAnalyzedSource(sourceToAnalyze);
       setSelectedEventId(nextAnalysis.events[0]?.id);
       setSeekRequest(nextAnalysis.events[0]?.timestamp ?? null);
       setActiveView("breakdown");
@@ -242,10 +258,12 @@ function App() {
         ) : (
           <div className="space-y-6">
             <UploadPanel
+              analyzedSource={analyzedSource}
+              isAnalysisStale={isAnalysisStale}
               isAnalyzing={isAnalyzing}
               source={source}
               onAnalyze={handleAnalyze}
-              onSourceChange={setSource}
+              onSourceChange={handleSourceChange}
             />
             <PipelineStatus stages={stages} />
 
