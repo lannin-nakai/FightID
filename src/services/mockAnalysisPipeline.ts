@@ -7,6 +7,8 @@ import type {
   FightRound,
   FighterId,
   MovementType,
+  PoseFrame,
+  PoseKeypoint,
   VideoSource,
 } from "../types/fight";
 import { MOVEMENT_LABELS } from "../types/fight";
@@ -113,6 +115,8 @@ type PoseSignal = FrameSignal & {
   torsoRotation: number;
   stanceWidth: number;
   hipDrive: number;
+  frameWidth: number;
+  frameHeight: number;
   dominantCenterX: number;
   dominantPose?: PoseEstimate;
 };
@@ -673,6 +677,8 @@ const derivePoseSignal = (
     torsoRotation,
     stanceWidth,
     hipDrive,
+    frameWidth: width,
+    frameHeight: height,
     dominantCenterX: center ? Math.max(0, Math.min(1, center.x / width)) : 0.5,
     dominantPose,
   };
@@ -1041,13 +1047,122 @@ const classifyPoseMovement = (
   };
 };
 
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+
+const poseKeypointToFramePoint = (
+  pose: PoseEstimate | undefined,
+  keypointName: string,
+  id: string,
+  label: string,
+  width: number,
+  height: number,
+): PoseKeypoint | undefined => {
+  const keypoint = getKeypoint(pose, keypointName);
+
+  if (!keypoint) {
+    return undefined;
+  }
+
+  return {
+    id,
+    label,
+    x: clampPercent((keypoint.x / width) * 100),
+    y: clampPercent((keypoint.y / height) * 100),
+  };
+};
+
+const averageFramePoint = (
+  id: string,
+  label: string,
+  first: PoseKeypoint | undefined,
+  second: PoseKeypoint | undefined,
+): PoseKeypoint | undefined => {
+  if (!first && !second) {
+    return undefined;
+  }
+
+  if (!first) {
+    return { ...second!, id, label };
+  }
+
+  if (!second) {
+    return { ...first, id, label };
+  }
+
+  return {
+    id,
+    label,
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+};
+
+const buildDetectedPoseFrame = (event: FightEvent, signal: PoseSignal): PoseFrame => {
+  const pose = signal.dominantPose;
+  const width = Math.max(1, signal.frameWidth);
+  const height = Math.max(1, signal.frameHeight);
+  const leftShoulder = poseKeypointToFramePoint(
+    pose,
+    "left_shoulder",
+    "lead_shoulder",
+    "Left shoulder",
+    width,
+    height,
+  );
+  const rightShoulder = poseKeypointToFramePoint(
+    pose,
+    "right_shoulder",
+    "rear_shoulder",
+    "Right shoulder",
+    width,
+    height,
+  );
+  const leftHip = poseKeypointToFramePoint(pose, "left_hip", "left_hip", "Left hip", width, height);
+  const rightHip = poseKeypointToFramePoint(pose, "right_hip", "right_hip", "Right hip", width, height);
+  const head = poseKeypointToFramePoint(pose, "nose", "head", "Head", width, height);
+  const neck = averageFramePoint("neck", "Neck", leftShoulder, rightShoulder);
+  const hip = averageFramePoint("hip", "Hip", leftHip, rightHip);
+  const keypoints = [
+    head,
+    neck,
+    leftShoulder,
+    rightShoulder,
+    poseKeypointToFramePoint(pose, "left_elbow", "lead_elbow", "Left elbow", width, height),
+    poseKeypointToFramePoint(pose, "right_elbow", "rear_elbow", "Right elbow", width, height),
+    poseKeypointToFramePoint(pose, "left_wrist", "lead_hand", "Left wrist", width, height),
+    poseKeypointToFramePoint(pose, "right_wrist", "rear_hand", "Right wrist", width, height),
+    hip,
+    poseKeypointToFramePoint(pose, "left_knee", "lead_knee", "Left knee", width, height),
+    poseKeypointToFramePoint(pose, "right_knee", "rear_knee", "Right knee", width, height),
+    poseKeypointToFramePoint(pose, "left_ankle", "lead_foot", "Left ankle", width, height),
+    poseKeypointToFramePoint(pose, "right_ankle", "rear_foot", "Right ankle", width, height),
+  ].filter((keypoint): keypoint is PoseKeypoint => Boolean(keypoint));
+
+  if (keypoints.length < 7) {
+    return createPoseFrame(event);
+  }
+
+  return {
+    id: event.poseFrameId,
+    timestamp: event.timestamp,
+    fighterId: event.fighterId,
+    movementType: event.movementType,
+    keypoints,
+    highlightedJoints: createPoseFrame(event).highlightedJoints,
+    facing: signal.dominantCenterX < 0.5 ? "right" : "left",
+  };
+};
+
 const eventsFromPoseSignals = (
   source: VideoSource,
   duration: number,
   rounds: FightRound[],
   signals: PoseSignal[],
-): FightEvent[] => {
-  return selectPoseEventSignals(signals).map((signal, index) => {
+): { events: FightEvent[]; poseFrames: PoseFrame[] } => {
+  const events: FightEvent[] = [];
+  const poseFrames: PoseFrame[] = [];
+
+  selectPoseEventSignals(signals).forEach((signal, index) => {
     const classification = classifyPoseMovement(signal);
     const confidence = Math.min(
       0.96,
@@ -1061,7 +1176,7 @@ const eventsFromPoseSignals = (
     );
     const fighterId: FighterId = signal.dominantCenterX < 0.5 ? "red" : "blue";
 
-    return buildGenericEvent(
+    const event = buildGenericEvent(
       source,
       Math.min(duration - 1, signal.timestamp),
       index,
@@ -1086,7 +1201,11 @@ const eventsFromPoseSignals = (
       }.`,
       fighterId,
     );
+    events.push(event);
+    poseFrames.push(buildDetectedPoseFrame(event, signal));
   });
+
+  return { events, poseFrames };
 };
 
 const buildSourceSpecificLinkedEvents = (
@@ -1152,8 +1271,9 @@ const finalizeAnalysis = (
   rounds: FightRound[],
   events: FightEvent[],
   summary: string,
+  detectedPoseFrames?: PoseFrame[],
 ): FightAnalysis => {
-  const poseFrames = events.map(createPoseFrame);
+  const poseFrames = detectedPoseFrames ?? events.map(createPoseFrame);
 
   return {
     ...mockFightAnalysis,
@@ -1217,7 +1337,7 @@ export const runFightAnalysis = async (
           status: index < 4 ? "complete" : index === 4 ? "running" : "queued",
         })),
       );
-      const events = eventsFromPoseSignals(source, duration, rounds, signals);
+      const { events, poseFrames } = eventsFromPoseSignals(source, duration, rounds, signals);
 
       onStageChange(
         stages.map((stage, index) => ({
@@ -1235,6 +1355,7 @@ export const runFightAnalysis = async (
         rounds,
         events,
         "High-accuracy client-side analysis ran: the browser sampled frames, estimated fighter pose keypoints with MoveNet, then scored every qualifying temporal window against combat-sports movement cues for straight punches, hooks, uppercuts, kicks, knees, takedowns, clinch exchanges, scrambles, feints, footwork, and defense. Output is no longer capped to twenty movements.",
+        poseFrames,
       );
     } catch (error) {
       console.warn("Falling back to frame-only analysis:", error);
