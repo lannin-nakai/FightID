@@ -12,7 +12,7 @@ export const PipelineStatus = ({ stages }: PipelineStatusProps) => (
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300">
           AI architecture
         </p>
-        <h2 className="mt-1 text-lg font-bold text-white">Mock analysis pipeline</h2>
+        <h2 className="mt-1 text-lg font-bold text-white">Video analysis pipeline</h2>
       </div>
       <span className="rounded-full border border-slate-700 bg-slate-950/80 px-3 py-1 text-xs text-slate-400">
         Plug-in ready
