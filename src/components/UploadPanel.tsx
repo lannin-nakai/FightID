@@ -1,6 +1,7 @@
 import { Link2, Play, UploadCloud } from "lucide-react";
 import { useState } from "react";
 import type { VideoSource } from "../types/fight";
+import { parseVideoUrl } from "../utils/videoSource";
 
 interface UploadPanelProps {
   source: VideoSource;
@@ -16,6 +17,7 @@ export const UploadPanel = ({
   onAnalyze,
 }: UploadPanelProps) => {
   const [url, setUrl] = useState("");
+  const [urlError, setUrlError] = useState("");
 
   return (
     <section className="glass-panel rounded-3xl p-5">
@@ -70,34 +72,31 @@ export const UploadPanel = ({
           <Link2 className="h-4 w-4 text-cyan-300" />
           <input
             className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
-            placeholder="Paste a direct MP4/HLS video URL or scouting footage link"
+            placeholder="Paste a YouTube link, direct MP4/HLS URL, or scouting footage link"
             type="url"
             value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              setUrlError("");
+            }}
           />
           <button
             className="rounded-xl border border-cyan-400/40 px-3 py-2 text-xs font-bold uppercase tracking-[0.16em] text-cyan-200 transition hover:bg-cyan-400/10"
             type="button"
             onClick={() => {
-              const trimmedUrl = url.trim();
+              const parsedVideo = parseVideoUrl(url);
 
-              if (!trimmedUrl) {
-                return;
-              }
-
-              let parsedUrl: URL;
-
-              try {
-                parsedUrl = new URL(trimmedUrl);
-              } catch {
+              if (!parsedVideo) {
+                setUrlError("Enter a valid video URL.");
                 return;
               }
 
               onSourceChange({
                 kind: "url",
-                label: parsedUrl.hostname || "Linked footage",
-                src: trimmedUrl,
+                label: parsedVideo.label,
+                src: parsedVideo.url,
               });
+              setUrlError("");
             }}
           >
             Use link
@@ -109,6 +108,7 @@ export const UploadPanel = ({
           <span className="font-semibold text-white">{source.label}</span>
         </div>
       </div>
+      {urlError && <p className="mt-2 text-sm text-rose-300">{urlError}</p>}
     </section>
   );
 };

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FightEvent, Fighter, PoseFrame, VideoSource } from "../types/fight";
 import { MOVEMENT_LABELS } from "../types/fight";
 import { formatTimestamp } from "../utils/time";
+import { getYouTubeEmbedUrl, getYouTubeVideoId } from "../utils/videoSource";
 import { PoseSilhouette } from "./PoseSilhouette";
 
 interface VideoStageProps {
@@ -26,15 +27,35 @@ export const VideoStage = ({
 }: VideoStageProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [youtubeStart, setYoutubeStart] = useState(0);
+  const youtubeVideoId = source.src ? getYouTubeVideoId(source.src) : undefined;
+  const youtubeEmbedUrl = youtubeVideoId
+    ? getYouTubeEmbedUrl(youtubeVideoId, youtubeStart)
+    : undefined;
 
   useEffect(() => {
-    if (seekRequest === null || !videoRef.current) {
+    if (seekRequest === null) {
+      return;
+    }
+
+    if (youtubeVideoId) {
+      setYoutubeStart(Math.max(0, Math.floor(seekRequest)));
+      onSeekHandled();
+      return;
+    }
+
+    if (!videoRef.current) {
+      onSeekHandled();
       return;
     }
 
     videoRef.current.currentTime = Math.max(0, seekRequest);
     onSeekHandled();
-  }, [onSeekHandled, seekRequest]);
+  }, [onSeekHandled, seekRequest, youtubeVideoId]);
+
+  useEffect(() => {
+    setYoutubeStart(0);
+  }, [source.src]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -43,6 +64,11 @@ export const VideoStage = ({
   }, [playbackRate]);
 
   const jumpBy = (delta: number) => {
+    if (youtubeVideoId) {
+      setYoutubeStart((currentStart) => Math.max(0, currentStart + delta));
+      return;
+    }
+
     if (!videoRef.current) {
       return;
     }
@@ -78,7 +104,15 @@ export const VideoStage = ({
 
       <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="relative min-h-[360px] bg-black">
-          {source.src ? (
+          {youtubeEmbedUrl ? (
+            <iframe
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              className="aspect-video h-full min-h-[360px] w-full bg-black"
+              src={youtubeEmbedUrl}
+              title={`${source.label} embedded fight footage`}
+            />
+          ) : source.src ? (
             <video
               className="aspect-video h-full max-h-[650px] w-full bg-black object-contain"
               controls
@@ -96,8 +130,9 @@ export const VideoStage = ({
                 </div>
                 <h3 className="text-2xl font-black text-white">Sample fight loaded</h3>
                 <p className="mt-3 text-sm leading-6 text-slate-400">
-                  Upload a local video or paste a direct video URL to review footage in
-                  the player. The clickable timestamps and mock analysis are active now.
+                  Upload a local video, paste a YouTube link, or paste a direct video URL
+                  to review footage in the player. The clickable timestamps and mock
+                  analysis are active now.
                 </p>
               </div>
             </div>
@@ -140,6 +175,7 @@ export const VideoStage = ({
                       ? "bg-orange-400 text-slate-950"
                       : "bg-slate-900 text-slate-300 hover:bg-slate-800"
                   }`}
+                  disabled={Boolean(youtubeVideoId)}
                   key={rate}
                   type="button"
                   onClick={() => setPlaybackRate(rate)}
@@ -166,6 +202,12 @@ export const VideoStage = ({
                 <SkipForward className="h-3.5 w-3.5" />
               </button>
             </div>
+            {youtubeVideoId && (
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                YouTube embeds do not expose playback-speed control here; timestamp cards
+                reload the embed at the selected moment.
+              </p>
+            )}
           </div>
         </aside>
       </div>
